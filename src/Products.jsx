@@ -1,13 +1,26 @@
 // src/components/Products.jsx
 
 import { useEffect, useState } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import {
+  useParams,
+  useNavigate,
+  useSearchParams,
+  createSearchParams,
+} from "react-router-dom";
 import axios from "axios";
-
 
 const FALLBACK_IMG = "https://via.placeholder.com/300x200?text=No+Image";
 const SMALL_FALLBACK = "https://via.placeholder.com/36";
 const PAGE_SIZE = 9;
+
+const useDebounce = (value, delay = 300) => {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+};
 
 const Navbar = ({ searchTerm, setSearchTerm }) => {
   const navigate = useNavigate();
@@ -124,35 +137,48 @@ const Pagination = ({ currentPage, totalPages, onChange }) => {
 };
 
 const Products = () => {
-  const { categoryId } = useParams(); // comes from URL if present
+  const { categoryId: paramCategoryId } = useParams(); // optional from path
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // sync from URL / params
+  const urlPage = parseInt(searchParams.get("page") || "1", 10);
+  const urlCategoryId = searchParams.get("category_id") || null;
+  const urlQuery = searchParams.get("q") || "";
+
   const [activeCategoryId, setActiveCategoryId] = useState(
-    categoryId || null
-  ); // local override
+    urlCategoryId || paramCategoryId || null
+  );
+  const [searchTerm, setSearchTerm] = useState(urlQuery);
+  const debouncedSearch = useDebounce(searchTerm, 400);
+
   const [products, setProducts] = useState([]);
-  const [allProducts, setAllProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [categoryName, setCategoryName] = useState("All");
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [loadingCats, setLoadingCats] = useState(true);
   const [error, setError] = useState(null);
   const [errorCats, setErrorCats] = useState(null);
-  const [searchTerm, setSearchTerm] = useState("");
 
-  // page from query params
-  const currentPage = Math.max(
-    1,
-    parseInt(searchParams.get("page") || "1", 10) || 1
-  );
+  const currentPage = Math.max(1, urlPage);
 
-  // keep URL param and local state in sync when URL changes (e.g., manual nav)
-  useEffect(() => {
-    setActiveCategoryId(categoryId || null);
-  }, [categoryId]);
+  // keep URL in sync
+  const syncURL = (opts = {}) => {
+    const params = {};
+    if (opts.page !== undefined) params.page = opts.page;
+    else if (currentPage) params.page = currentPage;
+    if (opts.category_id !== undefined)
+      params.category_id = opts.category_id || undefined;
+    else if (activeCategoryId) params.category_id = activeCategoryId;
+    if (opts.q !== undefined) params.q = opts.q;
+    else if (searchTerm) params.q = searchTerm;
 
-  // Fetch categories for sidebar
+    setSearchParams(params, { replace: true });
+  };
+
+  // Fetch categories
   useEffect(() => {
     setLoadingCats(true);
     axios
@@ -168,84 +194,79 @@ const Products = () => {
       });
   }, []);
 
-  // Fetch products when activeCategoryId changes
+  // Sync param changes into local state
   useEffect(() => {
-    setLoading(true);
-    setError(null);
+    if (urlCategoryId !== activeCategoryId) {
+      setActiveCategoryId(urlCategoryId);
+    }
+    if (urlQuery !== searchTerm) {
+      setSearchTerm(urlQuery);
+    }
+  }, [urlCategoryId, urlQuery]);
 
-    const fetchProducts = async () => {
+  // Fetch search results from backend (Elasticsearch)
+  useEffect(() => {
+    const fetchSearch = async () => {
+      setLoading(true);
+      setError(null);
       try {
-        let prodUrl = "http://localhost:8000/api/products/";
+        const params = new URLSearchParams();
+        if (activeCategoryId) params.set("category_id", activeCategoryId);
+        if (debouncedSearch) params.set("q", debouncedSearch);
+        params.set("page", currentPage);
+
+        const res = await axios.get(
+          `http://localhost:8000/api/product_search/?${params.toString()}`
+        );
+        const data = res.data;
+        setProducts(data.results);
+        setTotal(data.total);
+        setTotalPages(data.pages);
+        // derive categoryName when category filter applied (could be improved by endpoint)
         if (activeCategoryId) {
-          prodUrl = `http://localhost:8000/api/products/?category_id=${activeCategoryId}`;
-          try {
-            const catRes = await axios.get(
-              `http://localhost:8000/api/categories/${activeCategoryId}/`
-            );
-            setCategoryName(catRes.data.name || "Category");
-          } catch {
-            setCategoryName("Products");
-          }
+          const cat = categories.find((c) => String(c.id) === String(activeCategoryId));
+          setCategoryName(cat ? cat.name : "Category");
         } else {
           setCategoryName("All");
         }
 
-        const prodRes = await axios.get(prodUrl);
-        setAllProducts(prodRes.data);
-        setProducts(prodRes.data);
+        // reflect in URL
+        syncURL({
+          page: currentPage,
+          category_id: activeCategoryId,
+          q: debouncedSearch,
+        });
       } catch (err) {
-        console.error("Product fetch error:", err);
-        setError("Failed to load products.");
+        console.error("Search error:", err);
+        setError("Failed to load search results.");
       } finally {
         setLoading(false);
       }
     };
 
-    fetchProducts();
-    // reset to first page when category changes
-    setSearchParams({ page: "1" });
-  }, [activeCategoryId]);
-
-  // Apply search filter
-  useEffect(() => {
-    let filtered = allProducts;
-    if (searchTerm.trim()) {
-      const lower = searchTerm.toLowerCase();
-      filtered = allProducts.filter(
-        (p) =>
-          (p.name && p.name.toLowerCase().includes(lower)) ||
-          (p.description && p.description.toLowerCase().includes(lower))
-      );
-    }
-    setProducts(filtered);
-    setSearchParams({ page: "1" });
-  }, [searchTerm, allProducts]);
-
-  // Pagination calculations
-  const totalPages = Math.max(1, Math.ceil(products.length / PAGE_SIZE));
-  const paginated = products.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE
-  );
+    fetchSearch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCategoryId, debouncedSearch, currentPage, categories]);
 
   const handleCategoryClick = (cid) => {
-    if (cid) {
-      setActiveCategoryId(cid);
-      navigate(`/products/${cid}`);
-    } else {
-      setActiveCategoryId(null); // clear filter, fetch all
-      // do NOT navigate so URL stays as-is
-    }
+    setActiveCategoryId(cid);
+    // reset to first page
+    syncURL({ page: 1, category_id: cid, q: debouncedSearch });
+  };
+
+  const clearCategory = () => {
+    setActiveCategoryId(null);
+    syncURL({ page: 1, category_id: null, q: debouncedSearch });
+  };
+
+  const setPage = (p) => {
+    const safe = Math.min(Math.max(1, p), totalPages);
+    syncURL({ page: safe, category_id: activeCategoryId, q: debouncedSearch });
   };
 
   const isActiveCat = (cid) => {
     if (!cid && !activeCategoryId) return true;
     return String(cid) === String(activeCategoryId);
-  };
-
-  const setPage = (p) => {
-    const safe = Math.min(Math.max(1, p), totalPages);
-    setSearchParams({ page: String(safe) });
   };
 
   return (
@@ -272,7 +293,7 @@ const Products = () => {
                       isActiveCat(null) ? "active" : ""
                     }`}
                     style={{ cursor: "pointer" }}
-                    onClick={() => handleCategoryClick(null)}
+                    onClick={clearCategory}
                   >
                     All
                   </li>
@@ -322,7 +343,7 @@ const Products = () => {
               <h2 className="mb-0">{categoryName}</h2>
               <div>
                 <small>
-                  Showing {paginated.length} of {products.length} products
+                  Showing {products.length} of {total} products
                 </small>
               </div>
             </div>
@@ -343,8 +364,8 @@ const Products = () => {
             ) : (
               <>
                 <div className="row">
-                  {paginated.map((product) => (
-                    <div className="col-md-4 mb-4" key={product.id}>
+                  {products.map((product) => (
+                    <div className="col-md-4 mb-4" key={product.product_id}>
                       <div className="card h-100 shadow-sm">
                         <div
                           style={{
