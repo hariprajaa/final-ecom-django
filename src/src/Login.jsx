@@ -29,7 +29,8 @@ const Login = () => {
     // save the access token so you can use it for later requests
     localStorage.setItem("authToken", access);
     localStorage.setItem("user", JSON.stringify(user));
-
+    localStorage.setItem("access", access);
+    window.dispatchEvent(new Event("authChanged"));
     // redirect to home page
     window.location.href = "/";
   } catch (err) {

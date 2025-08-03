@@ -1,5 +1,3 @@
-// src/components/Products.jsx
-
 import { useEffect, useState } from "react";
 import {
   useParams,
@@ -25,6 +23,36 @@ const useDebounce = (value, delay = 300) => {
 const Navbar = ({ searchTerm, setSearchTerm }) => {
   const navigate = useNavigate();
 
+  const [authenticated, setAuthenticated] = useState(
+    !!localStorage.getItem("access") || !!localStorage.getItem("authToken")
+  );
+
+  useEffect(() => {
+    const updateAuth = () => {
+      setAuthenticated(
+        !!localStorage.getItem("access") || !!localStorage.getItem("authToken")
+      );
+    };
+
+    window.addEventListener("storage", updateAuth);
+    window.addEventListener("authChanged", updateAuth);
+    updateAuth();
+    return () => {
+      window.removeEventListener("storage", updateAuth);
+      window.removeEventListener("authChanged", updateAuth);
+    };
+  }, []);
+
+  const logout = () => {
+    localStorage.removeItem("access");
+    localStorage.removeItem("refresh");
+    localStorage.removeItem("user");
+    localStorage.removeItem("authToken");
+    window.dispatchEvent(new Event("authChanged"));
+    setAuthenticated(false);
+    navigate("/");
+  };
+
   return (
     <nav className="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
       <div className="container">
@@ -48,24 +76,31 @@ const Navbar = ({ searchTerm, setSearchTerm }) => {
         </div>
 
         <div className="d-flex gap-2">
-          <button
-            className="btn btn-outline-primary"
-            onClick={() => navigate("/login")}
-          >
-            Login
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={() => navigate("/signup")}
-          >
-            Signup
-          </button>
+          {authenticated ? (
+            <button className="btn btn-outline-danger" onClick={logout}>
+              Logout
+            </button>
+          ) : (
+            <>
+              <button
+                className="btn btn-outline-primary"
+                onClick={() => navigate("/login")}
+              >
+                Login
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => navigate("/signup")}
+              >
+                Signup
+              </button>
+            </>
+          )}
         </div>
       </div>
     </nav>
   );
 };
-
 const Pagination = ({ currentPage, totalPages, onChange }) => {
   if (totalPages <= 1) return null;
 

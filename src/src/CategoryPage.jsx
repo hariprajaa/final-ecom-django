@@ -9,6 +9,41 @@ const PAGE_SIZE = 9;
 
 const Navbar = ({ searchTerm, setSearchTerm }) => {
   const navigate = useNavigate();
+
+  const [authenticated, setAuthenticated] = useState(
+    !!localStorage.getItem("access") || !!localStorage.getItem("authToken")
+  );
+
+  useEffect(() => {
+    const updateAuth = () => {
+      setAuthenticated(
+        !!localStorage.getItem("access") || !!localStorage.getItem("authToken")
+      );
+    };
+
+    window.addEventListener("storage", updateAuth);
+    window.addEventListener("authChanged", updateAuth);
+
+    // initial sync
+    updateAuth();
+
+    return () => {
+      window.removeEventListener("storage", updateAuth);
+      window.removeEventListener("authChanged", updateAuth);
+    };
+  }, []);
+
+  const logout = () => {
+    localStorage.removeItem("access");
+    localStorage.removeItem("refresh");
+    localStorage.removeItem("user");
+    localStorage.removeItem("authToken");
+    setAuthenticated(false);
+    // notify other listeners
+    window.dispatchEvent(new Event("authChanged"));
+    navigate("/");
+  };
+
   return (
     <nav className="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
       <div className="container">
@@ -23,7 +58,7 @@ const Navbar = ({ searchTerm, setSearchTerm }) => {
           <span
             className="nav-link ms-3"
             style={{ cursor: "pointer", padding: 0 }}
-            onClick={() => navigate("/products")} // ✅ navigate without categoryId
+            onClick={() => navigate("/products")}
           >
             All Products
           </span>
@@ -41,18 +76,26 @@ const Navbar = ({ searchTerm, setSearchTerm }) => {
         </div>
 
         <div className="d-flex gap-2">
-          <button
-            className="btn btn-outline-primary"
-            onClick={() => navigate("/Login")}
-          >
-            Login
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={() => navigate("/SignUp")}
-          >
-            Signup
-          </button>
+          {authenticated ? (
+            <button className="btn btn-outline-danger" onClick={logout}>
+              Logout
+            </button>
+          ) : (
+            <>
+              <button
+                className="btn btn-outline-primary"
+                onClick={() => navigate("/Login")}
+              >
+                Login
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => navigate("/SignUp")}
+              >
+                Signup
+              </button>
+            </>
+          )}
         </div>
       </div>
     </nav>
