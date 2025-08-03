@@ -1,3 +1,5 @@
+// src/components/Products.jsx
+
 import { useEffect, useState } from "react";
 import {
   useParams,
@@ -50,7 +52,7 @@ const Navbar = ({ searchTerm, setSearchTerm }) => {
     localStorage.removeItem("authToken");
     window.dispatchEvent(new Event("authChanged"));
     setAuthenticated(false);
-    navigate("/");
+    navigate("/login");
   };
 
   return (
@@ -101,6 +103,7 @@ const Navbar = ({ searchTerm, setSearchTerm }) => {
     </nav>
   );
 };
+
 const Pagination = ({ currentPage, totalPages, onChange }) => {
   if (totalPages <= 1) return null;
 
@@ -196,21 +199,22 @@ const Products = () => {
   const [error, setError] = useState(null);
   const [errorCats, setErrorCats] = useState(null);
 
-  // Keep the URL and local state in sync with a single source of truth
+  // Keep the URL and local state in sync
   const syncURL = (opts = {}) => {
     const params = createSearchParams({
       page: opts.page !== undefined ? opts.page : urlState.page,
       q: opts.q !== undefined ? opts.q : urlState.query,
+      // only include category if there's no active search
       ...(opts.category_id !== undefined
         ? { category_id: opts.category_id }
-        : urlState.categoryId
+        : !debouncedSearch && urlState.categoryId
         ? { category_id: urlState.categoryId }
         : {}),
     });
     setSearchParams(params, { replace: true });
   };
 
-  // Fetch categories (runs once)
+  // Fetch categories (once)
   useEffect(() => {
     setLoadingCats(true);
     axios
@@ -226,15 +230,19 @@ const Products = () => {
       });
   }, []);
 
-  // Fetch products (runs when any of the dependencies change)
+  // Fetch products: if there's a search term, ignore category filter
   useEffect(() => {
     const fetchSearch = async () => {
       setLoading(true);
       setError(null);
       try {
         const params = new URLSearchParams();
-        if (urlState.categoryId) params.set("category_id", urlState.categoryId);
-        if (debouncedSearch) params.set("q", debouncedSearch);
+        if (!debouncedSearch && urlState.categoryId) {
+          params.set("category_id", urlState.categoryId);
+        }
+        if (debouncedSearch) {
+          params.set("q", debouncedSearch);
+        }
         params.set("page", urlState.page);
 
         const res = await axios.get(
@@ -245,8 +253,10 @@ const Products = () => {
         setTotal(data.total);
         setTotalPages(data.pages);
 
-        // Derive categoryName based on the fetched category ID
-        if (urlState.categoryId) {
+        // categoryName: if searching, always show "All"
+        if (debouncedSearch) {
+          setCategoryName("All");
+        } else if (urlState.categoryId) {
           const cat = categories.find(
             (c) => String(c.id) === String(urlState.categoryId)
           );
@@ -255,7 +265,7 @@ const Products = () => {
           setCategoryName("All");
         }
 
-        // Keep search term in sync with debounced value
+        // sync searchTerm if it drifted
         if (searchTerm !== debouncedSearch) {
           setSearchTerm(debouncedSearch);
         }
@@ -271,19 +281,24 @@ const Products = () => {
   }, [urlState.categoryId, debouncedSearch, urlState.page, categories]);
 
   const handleCategoryClick = (cid) => {
-    syncURL({ page: 1, category_id: cid, q: searchTerm });
+    syncURL({ page: 1, category_id: cid, q: "" }); // clears search when selecting category
   };
 
   const clearCategory = () => {
-    syncURL({ page: 1, category_id: null, q: searchTerm });
+    syncURL({ page: 1, category_id: null, q: "" });
   };
 
   const setPage = (p) => {
     const safe = Math.min(Math.max(1, p), totalPages);
-    syncURL({ page: safe, category_id: urlState.categoryId, q: searchTerm });
+    syncURL({
+      page: safe,
+      category_id: debouncedSearch ? null : urlState.categoryId,
+      q: debouncedSearch,
+    });
   };
 
   const isActiveCat = (cid) => {
+    if (debouncedSearch) return false; // search overrides category highlighting
     if (!cid && !urlState.categoryId) return true;
     return String(cid) === String(urlState.categoryId);
   };
