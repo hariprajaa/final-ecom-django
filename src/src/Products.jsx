@@ -52,7 +52,7 @@ const Navbar = ({ searchTerm, setSearchTerm }) => {
     localStorage.removeItem("authToken");
     window.dispatchEvent(new Event("authChanged"));
     setAuthenticated(false);
-    navigate("/login");
+    navigate("/");
   };
 
   return (

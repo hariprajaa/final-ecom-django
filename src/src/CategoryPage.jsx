@@ -23,10 +23,7 @@ const Navbar = ({ searchTerm, setSearchTerm }) => {
 
     window.addEventListener("storage", updateAuth);
     window.addEventListener("authChanged", updateAuth);
-
-    // initial sync
     updateAuth();
-
     return () => {
       window.removeEventListener("storage", updateAuth);
       window.removeEventListener("authChanged", updateAuth);
@@ -38,10 +35,21 @@ const Navbar = ({ searchTerm, setSearchTerm }) => {
     localStorage.removeItem("refresh");
     localStorage.removeItem("user");
     localStorage.removeItem("authToken");
-    setAuthenticated(false);
-    // notify other listeners
     window.dispatchEvent(new Event("authChanged"));
+    setAuthenticated(false);
     navigate("/");
+  };
+
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    if (searchTerm.trim()) {
+      navigate({
+        pathname: "/products",
+        search: `?q=${encodeURIComponent(searchTerm.trim())}&page=1`,
+      });
+    } else {
+      navigate("/products");
+    }
   };
 
   return (
@@ -65,14 +73,20 @@ const Navbar = ({ searchTerm, setSearchTerm }) => {
         </div>
 
         <div className="d-flex flex-grow-1 justify-content-center">
-          <input
-            type="text"
-            className="form-control w-50"
-            placeholder="Search categories..."
-            aria-label="Search categories"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+          <form
+            onSubmit={handleSearchSubmit}
+            className="w-50"
+            style={{ margin: 0 }}
+          >
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Search categories..."
+              aria-label="Search categories"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </form>
         </div>
 
         <div className="d-flex gap-2">
@@ -264,7 +278,6 @@ const Categories = () => {
     setCurrentPage(safe);
     setShowAll(false);
   };
-
   return (
     <div>
       <Navbar searchTerm={searchTerm} setSearchTerm={setSearchTerm} />
